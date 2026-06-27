@@ -2,6 +2,8 @@
 
 Compute the cost of a road trip in France and compare it to the official mileage allowance (*barème kilométrique 2025*). Supports convoy mode (several vehicles sharing the same trip), per-person cost splitting, and an adjustable ratio for partial reimbursements.
 
+**Fully static** — no backend, no account. Vehicles and settings are stored in your browser's `localStorage`. Deploys to GitHub Pages.
+
 ## Screenshot
 
 > _(screenshot placeholder)_
@@ -10,32 +12,34 @@ Compute the cost of a road trip in France and compare it to the official mileage
 
 ```bash
 npm install
-cp .env.example .env
-# Optionally: set ORS_API_KEY for address autocomplete
-npm run dev
-# Frontend → http://localhost:5173
-# Backend  → http://localhost:3001
+npm run dev   # http://localhost:5173
 ```
 
-On first launch, visit `/login`, click **Créer un compte**, and set your name + 6-digit PIN.
-
-## Deploy
-
-The app ships as a single Docker image (backend + frontend static files):
+Build the static site:
 
 ```bash
-docker build . -t routecalc
-docker run -p 8080:8080 \
-  -e JWT_SECRET=your-secret \
-  -e ORS_API_KEY=your-ors-key \
-  -v $(pwd)/data:/app/data \
-  routecalc
+npm run build   # outputs frontend/dist
+npm run preview # serve the build locally
 ```
 
-One-click platforms: **Fly.io**, **Render**, **Railway** — point them at this repo and set the env vars above.
+## Address autocomplete (optional)
+
+Distance can always be entered manually. To enable address search and automatic route distance, open **Véhicules → Recherche d'adresses** and paste a free [OpenRouteService](https://openrouteservice.org/dev/#/signup) API key (~2 000 requests/day). The key is stored only in your browser and used to call ORS directly.
+
+## Deploy (GitHub Pages)
+
+Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the frontend and publishes it to GitHub Pages. Enable Pages once under **Settings → Pages → Source: GitHub Actions**.
+
+## Data
+
+Everything lives in `localStorage`:
+
+- `routecalc_vehicles` — your saved vehicles
+- `routecalc_ors_key` — your OpenRouteService key (if set)
+- `routecalc_locale` — UI language (FR/EN)
+
+Clearing browser data resets the app.
 
 ## Stack
 
-- **Frontend** — Vue 3, Vite, TypeScript, Tailwind 3, Pinia, vue-i18n, axios, lucide-vue-next
-- **Backend** — Node 20, Express, TypeScript, Drizzle ORM, better-sqlite3
-- **Database** — SQLite (single file, persisted in `./data/`)
+Vue 3 · Vite · TypeScript · Tailwind 3 · Pinia · vue-i18n · lucide-vue-next

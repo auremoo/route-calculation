@@ -2,13 +2,16 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getLocale } from '../i18n/index'
-import api from '../stores/api'
+import { calculate as computeCalc } from '../lib/bareme'
+import { geocode as orsGeocode, route as orsRoute, hasOrsKey } from '../lib/ors'
+import { useVehiclesStore } from '../stores/vehicles'
 import {
   Navigation, RotateCcw, Printer, AlertCircle, Fuel,
   Plus, Minus, ChevronDown, ChevronUp, Car
 } from 'lucide-vue-next'
 
 const router = useRouter()
+const vehiclesStore = useVehiclesStore()
 
 // ---- Vehicles ----
 const vehicles = ref<any[]>([])
@@ -166,21 +169,14 @@ const calcError = ref<string | null>(null)
 let fromTimer: ReturnType<typeof setTimeout>
 let toTimer: ReturnType<typeof setTimeout>
 
-onMounted(async () => {
-  try {
-    const { data } = await api.get('/route-calc/vehicles')
-    vehicles.value = data
-    const def = data.find((v: any) => v.is_default)
-    if (def) applyVehicle(def)
-    else if (data.length) applyVehicle(data[0])
-  } catch {}
+onMounted(() => {
+  vehiclesStore.load()
+  vehicles.value = vehiclesStore.vehicles
+  const def = vehicles.value.find(v => v.is_default)
+  if (def) applyVehicle(def)
+  else if (vehicles.value.length) applyVehicle(vehicles.value[0])
 
-  try {
-    await api.post('/route-calc/geocode', { query: 'Paris' })
-    orsAvailable.value = true
-  } catch (e: any) {
-    orsAvailable.value = e?.response?.status !== 503
-  }
+  orsAvailable.value = hasOrsKey()
 })
 
 function applyVehicle(v: any) {
@@ -205,7 +201,7 @@ function onFromInput() {
   fromCoords.value = null; routeDistance.value = null
   if (!orsAvailable.value || fromAddress.value.length < 3) { fromSuggestions.value = []; return }
   fromTimer = setTimeout(async () => {
-    try { const { data } = await api.post('/route-calc/geocode', { query: fromAddress.value }); fromSuggestions.value = data; showFromSug.value = true } catch {}
+    try { fromSuggestions.value = await orsGeocode(fromAddress.value); showFromSug.value = true } catch {}
   }, 400)
 }
 function onToInput() {
@@ -213,7 +209,7 @@ function onToInput() {
   toCoords.value = null; routeDistance.value = null
   if (!orsAvailable.value || toAddress.value.length < 3) { toSuggestions.value = []; return }
   toTimer = setTimeout(async () => {
-    try { const { data } = await api.post('/route-calc/geocode', { query: toAddress.value }); toSuggestions.value = data; showToSug.value = true } catch {}
+    try { toSuggestions.value = await orsGeocode(toAddress.value); showToSug.value = true } catch {}
   }, 400)
 }
 function pickFrom(s: any) { fromAddress.value = s.label; fromCoords.value = s.coordinates; showFromSug.value = false }
@@ -225,7 +221,7 @@ async function getRoute() {
   if (!fromCoords.value || !toCoords.value) return
   routeLoading.value = true
   try {
-    const { data } = await api.post('/route-calc/route', { from: fromCoords.value, to: toCoords.value, avoidTolls: avoidTolls.value })
+    const data = await orsRoute(fromCoords.value, toCoords.value, avoidTolls.value)
     routeDistance.value = Math.round(data.distanceKm * 10) / 10
     routeDuration.value = Math.round(data.durationMin)
     essenceResult.value = null; baremeResult.value = null; calcDone.value = false
@@ -235,7 +231,7 @@ async function getRoute() {
 // ---- Calculate ----
 const canCalculate = computed(() => totalDistance.value > 0 && (useEssence.value || useBareme.value))
 
-async function calculate() {
+function calculate() {
   if (!canCalculate.value) return
   calculating.value = true
   calcError.value = null
@@ -256,27 +252,25 @@ async function calculate() {
         { label: selectedVehicle.value?.name ?? 'Véhicule 1', consumption: consumption.value, fuelPrice: fuelPrice.value, fiscalPower: fiscalPower.value },
         ...convoyExtras.value.map(e => ({ label: e.label, consumption: e.consumption, fuelPrice: e.fuelPrice, fiscalPower: e.fiscalPower })),
       ]
-      const responses = await Promise.all(
-        entries.map(e => api.post('/route-calc/calculate', { ...base, consumption: e.consumption, fuelPrice: e.fuelPrice, fiscalPower: e.fiscalPower }))
-      )
+      const responses = entries.map(e => computeCalc({ ...base, consumption: e.consumption, fuelPrice: e.fuelPrice, fiscalPower: e.fiscalPower }))
       convoyResults.value = responses.map((r, i) => ({
         label: entries[i].label,
-        essenceTotal: r.data.totalRealCost,
-        baremeAllowance: r.data.baremeAllowance,
+        essenceTotal: r.totalRealCost,
+        baremeAllowance: r.baremeAllowance,
       }))
-      const dist = responses[0].data.distanceUsed
+      const dist = responses[0].distanceUsed
       if (useEssence.value) {
-        const totalFuel = responses.reduce((s, r) => s + r.data.fuelCost, 0)
-        const totalToll = responses.reduce((s, r) => s + r.data.tollCost, 0)
-        const totalReal = responses.reduce((s, r) => s + r.data.totalRealCost, 0)
+        const totalFuel = responses.reduce((s, r) => s + r.fuelCost, 0)
+        const totalToll = responses.reduce((s, r) => s + r.tollCost, 0)
+        const totalReal = responses.reduce((s, r) => s + r.totalRealCost, 0)
         essenceResult.value = { fuelCost: totalFuel, tollCost: totalToll, total: totalReal, perKm: totalReal / dist }
       }
       if (useBareme.value) {
-        const totalAllowance = responses.reduce((s, r) => s + r.data.baremeAllowance, 0)
-        baremeResult.value = { rate: responses[0].data.baremeTaux, bracket: responses[0].data.baremeBracket, allowance: totalAllowance, perKm: totalAllowance / dist }
+        const totalAllowance = responses.reduce((s, r) => s + r.baremeAllowance, 0)
+        baremeResult.value = { rate: responses[0].baremeTaux, bracket: responses[0].baremeBracket, allowance: totalAllowance, perKm: totalAllowance / dist }
       }
     } else {
-      const { data } = await api.post('/route-calc/calculate', { ...base, consumption: consumption.value, fiscalPower: fiscalPower.value, fuelPrice: fuelPrice.value })
+      const data = computeCalc({ ...base, consumption: consumption.value, fiscalPower: fiscalPower.value, fuelPrice: fuelPrice.value })
       if (useEssence.value) {
         essenceResult.value = { fuelCost: data.fuelCost, tollCost: data.tollCost, total: data.totalRealCost, perKm: data.totalRealCost / data.distanceUsed }
       }

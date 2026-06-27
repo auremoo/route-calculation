@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import api from '../stores/api'
-import { Car, Plus, Pencil, Trash2, Star, AlertTriangle } from 'lucide-vue-next'
+import { useVehiclesStore } from '../stores/vehicles'
+import { getOrsKey, setOrsKey } from '../lib/ors'
+import { Car, Plus, Pencil, Trash2, Star, AlertTriangle, MapPin } from 'lucide-vue-next'
 
 const { t } = useI18n()
+const vehiclesStore = useVehiclesStore()
 
 const loading = ref(true)
 const vehicles = ref<any[]>([])
@@ -12,6 +14,14 @@ const showModal = ref(false)
 const editingVehicle = ref<any | null>(null)
 const saving = ref(false)
 const deleteTarget = ref<any | null>(null)
+
+const orsKey = ref('')
+const orsSaved = ref(false)
+function saveOrsKey() {
+  setOrsKey(orsKey.value)
+  orsSaved.value = true
+  setTimeout(() => { orsSaved.value = false }, 2000)
+}
 
 const form = ref({
   name: '',
@@ -30,16 +40,15 @@ const fuelTypes = computed(() => [
   { value: 'hybrid', label: t('settings.fuelTypeHybrid') },
 ])
 
-onMounted(async () => {
-  await fetchVehicles()
+onMounted(() => {
+  fetchVehicles()
+  orsKey.value = getOrsKey()
   loading.value = false
 })
 
-async function fetchVehicles() {
-  try {
-    const resp = await api.get('/route-calc/vehicles')
-    vehicles.value = resp.data
-  } catch { /* ignore */ }
+function fetchVehicles() {
+  vehiclesStore.load()
+  vehicles.value = vehiclesStore.vehicles
 }
 
 function getFuelTypeLabel(ft: string): string {
@@ -74,7 +83,7 @@ function openEdit(v: any) {
   showModal.value = true
 }
 
-async function handleSave() {
+function handleSave() {
   if (!form.value.name.trim() || form.value.consumption <= 0) return
   saving.value = true
   try {
@@ -88,28 +97,22 @@ async function handleSave() {
       sortOrder: form.value.sortOrder,
     }
     if (editingVehicle.value) {
-      await api.put(`/route-calc/vehicles/${editingVehicle.value.id}`, payload)
+      vehiclesStore.update(editingVehicle.value.id, payload)
     } else {
-      await api.post('/route-calc/vehicles', payload)
+      vehiclesStore.create(payload)
     }
     showModal.value = false
-    await fetchVehicles()
-  } catch (err: any) {
-    alert(err.response?.data?.error || t('common.error'))
+    fetchVehicles()
   } finally {
     saving.value = false
   }
 }
 
-async function handleDelete() {
+function handleDelete() {
   if (!deleteTarget.value) return
-  try {
-    await api.delete(`/route-calc/vehicles/${deleteTarget.value.id}`)
-    deleteTarget.value = null
-    await fetchVehicles()
-  } catch (err: any) {
-    alert(err.response?.data?.error || t('common.error'))
-  }
+  vehiclesStore.remove(deleteTarget.value.id)
+  deleteTarget.value = null
+  fetchVehicles()
 }
 </script>
 
@@ -170,6 +173,36 @@ async function handleDelete() {
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- ORS API key -->
+    <div class="bg-white rounded-xl border border-ink-100 shadow-soft p-6 mb-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent-500/10">
+          <MapPin :size="20" class="text-accent-500" />
+        </div>
+        <div class="flex-1">
+          <h2 class="text-base font-semibold text-ink-800">Recherche d'adresses (optionnel)</h2>
+          <p class="text-xs text-ink-300 mt-0.5">Collez votre clé OpenRouteService pour activer l'autocomplétion et le calcul d'itinéraire.</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input
+          v-model="orsKey"
+          type="password"
+          placeholder="Clé API ORS"
+          class="input flex-1"
+          autocomplete="off"
+        />
+        <button @click="saveOrsKey" class="btn-primary whitespace-nowrap">
+          {{ orsSaved ? '✓ Enregistré' : $t('common.save') }}
+        </button>
+      </div>
+      <p class="text-xs text-ink-300 mt-2">
+        Clé gratuite (~2 000 requêtes/jour) sur
+        <a href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener" class="text-accent-500 hover:underline">openrouteservice.org</a>.
+        Stockée uniquement dans ce navigateur. Sans clé, la distance se saisit à la main.
+      </p>
     </div>
 
     <!-- Create/Edit Modal -->

@@ -2,13 +2,10 @@
   "name": "routecalc",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["backend", "frontend"],
+  "workspaces": ["frontend"],
   "scripts": {
-    "dev": "concurrently \"npm -w backend run dev\" \"npm -w frontend run dev\"",
-    "build": "npm -w backend run build && npm -w frontend run build",
-    "start": "node backend/dist/start.js"
-  },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
+    "dev": "npm -w frontend run dev",
+    "build": "npm -w frontend run build",
+    "preview": "npm -w frontend run preview"
   }
 }

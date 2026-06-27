@@ -1,6 +1,3 @@
 node_modules/
-backend/dist/
 frontend/dist/
-data/
 .env
-*.db
