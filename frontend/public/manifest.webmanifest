@@ -1,0 +1,16 @@
+{
+  "name": "RouteCalc",
+  "short_name": "RouteCalc",
+  "description": "Calculateur de coûts de trajet et frais kilométriques",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FBFAF7",
+  "theme_color": "#6D3AAD",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
