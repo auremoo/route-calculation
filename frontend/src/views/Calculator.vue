@@ -84,9 +84,13 @@ const autoRatioEnabled = ref(false)
 const surplusMaxPer1000km = ref(10)
 const nbPersons = ref(1)
 
+const nbVehicles = computed((): number =>
+  convoyEnabled.value ? 1 + convoyExtras.value.length : 1
+)
+
 const autoRatio = computed((): number => {
   if (!essenceResult.value || !baremeResult.value || baremeResult.value.allowance === 0) return 1
-  const maxAllowance = essenceResult.value.total + (surplusMaxPer1000km.value * (totalDistance.value / 1000) * nbPersons.value)
+  const maxAllowance = essenceResult.value.total + (surplusMaxPer1000km.value * (totalDistance.value / 1000) * nbVehicles.value)
   return Math.min(1, Math.max(0, maxAllowance / baremeResult.value.allowance))
 })
 const effectiveRatio = computed((): number =>
@@ -723,7 +727,7 @@ function printReport() { window.print() }
             <input v-model.number="surplusMaxPer1000km" type="number" min="0" step="1"
               class="w-14 px-2 py-1 text-xs border rounded-lg outline-none text-center transition-colors"
               :class="autoRatioEnabled ? 'border-green-400 ring-1 ring-green-100' : 'border-ink-100'" />
-            <span class="text-xs text-ink-300">€/pers./1000km</span>
+            <span class="text-xs text-ink-300">€/véh./1000km</span>
           </div>
           <span class="text-ink-100">·</span>
           <!-- Personnes -->

@@ -1,0 +1,16 @@
+{
+  "routecalc": {
+    "vehicleFetchError": "Erreur lors de la récupération des véhicules",
+    "vehicleFieldsRequired": "Nom, type de carburant et consommation sont requis",
+    "vehicleSaveError": "Erreur lors de l'enregistrement du véhicule",
+    "vehicleNotFound": "Véhicule introuvable",
+    "vehicleDeleteError": "Erreur lors de la suppression du véhicule",
+    "orsNotConfigured": "Service de géocodage non configuré (clé API ORS manquante)",
+    "queryRequired": "Requête de recherche requise",
+    "geocodeError": "Erreur lors du géocodage",
+    "coordsRequired": "Coordonnées de départ et d'arrivée requises",
+    "routeError": "Erreur lors du calcul de l'itinéraire",
+    "calcFieldsRequired": "Distance, consommation et prix du carburant sont requis",
+    "calcError": "Erreur lors du calcul"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "routecalc": {
+    "vehicleFetchError": "Error fetching vehicles",
+    "vehicleFieldsRequired": "Name, fuel type and consumption are required",
+    "vehicleSaveError": "Error saving vehicle",
+    "vehicleNotFound": "Vehicle not found",
+    "vehicleDeleteError": "Error deleting vehicle",
+    "orsNotConfigured": "Geocoding service not configured (ORS API key missing)",
+    "queryRequired": "Search query required",
+    "geocodeError": "Geocoding error",
+    "coordsRequired": "Origin and destination coordinates required",
+    "routeError": "Error calculating route",
+    "calcFieldsRequired": "Distance, consumption and fuel price are required",
+    "calcError": "Calculation error"
+  }
+}
