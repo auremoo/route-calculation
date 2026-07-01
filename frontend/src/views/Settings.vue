@@ -3,7 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useVehiclesStore } from '../stores/vehicles'
 import { getOrsKey, setOrsKey } from '../lib/ors'
-import { Car, Plus, Pencil, Trash2, Star, AlertTriangle, MapPin } from 'lucide-vue-next'
+import { getDataSafeConfig, setDataSafeConfig, exportData } from '../lib/backup'
+import { Car, Plus, Pencil, Trash2, Star, AlertTriangle, MapPin, Save, UploadCloud } from 'lucide-vue-next'
 
 const { t } = useI18n()
 const vehiclesStore = useVehiclesStore()
@@ -21,6 +22,34 @@ function saveOrsKey() {
   setOrsKey(orsKey.value)
   orsSaved.value = true
   setTimeout(() => { orsSaved.value = false }, 2000)
+}
+
+const dataSafe = ref({ url: '', apiKey: '', appName: '' })
+const dataSafeSaved = ref(false)
+function saveDataSafeConfig() {
+  setDataSafeConfig(dataSafe.value)
+  dataSafeSaved.value = true
+  setTimeout(() => { dataSafeSaved.value = false }, 2000)
+}
+
+const exporting = ref(false)
+const exportStatus = ref<string | null>(null)
+async function handleExport() {
+  exporting.value = true
+  exportStatus.value = null
+  try {
+    const result = await exportData()
+    if (result.mode === 'datasafe') {
+      exportStatus.value = '✓ Sauvegardé sur DataSafe'
+    } else if (result.reason === 'network-error') {
+      exportStatus.value = '⚠ DataSafe injoignable — fichier téléchargé à la place'
+    } else {
+      exportStatus.value = '✓ Fichier téléchargé'
+    }
+  } finally {
+    exporting.value = false
+    setTimeout(() => { exportStatus.value = null }, 4000)
+  }
 }
 
 const form = ref({
@@ -43,6 +72,7 @@ const fuelTypes = computed(() => [
 onMounted(() => {
   fetchVehicles()
   orsKey.value = getOrsKey()
+  dataSafe.value = getDataSafeConfig()
   loading.value = false
 })
 
@@ -203,6 +233,49 @@ function handleDelete() {
         <a href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener" class="text-accent-500 hover:underline">openrouteservice.org</a>.
         Stockée uniquement dans ce navigateur. Sans clé, la distance se saisit à la main.
       </p>
+    </div>
+
+    <!-- Sauvegarde / DataSafe -->
+    <div class="bg-white rounded-xl border border-ink-100 shadow-soft p-6 mb-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent-500/10">
+          <UploadCloud :size="20" class="text-accent-500" />
+        </div>
+        <div class="flex-1">
+          <h2 class="text-base font-semibold text-ink-800">Sauvegarde des données</h2>
+          <p class="text-xs text-ink-300 mt-0.5">Configurez DataSafe pour pousser vos sauvegardes à distance, ou laissez vide pour télécharger un fichier local.</p>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="label">URL DataSafe</label>
+          <input v-model="dataSafe.url" type="text" placeholder="https://mon-prp.example.com/api/data-safe/ingest" class="input" autocomplete="off" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="label">Clé API</label>
+            <input v-model="dataSafe.apiKey" type="password" placeholder="Clé API DataSafe" class="input" autocomplete="off" />
+          </div>
+          <div>
+            <label class="label">Nom de l'app</label>
+            <input v-model="dataSafe.appName" type="text" placeholder="routecalc" class="input" autocomplete="off" />
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <button @click="saveDataSafeConfig" class="btn-secondary whitespace-nowrap">
+            {{ dataSafeSaved ? '✓ Enregistré' : $t('common.save') }}
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between mt-4 pt-4 border-t border-ink-100">
+        <p class="text-xs text-ink-300">{{ exportStatus || 'Exporte vos véhicules, votre clé ORS et vos préférences.' }}</p>
+        <button @click="handleExport" :disabled="exporting" class="btn-primary whitespace-nowrap inline-flex items-center gap-1.5">
+          <Save :size="14" />
+          {{ exporting ? $t('common.loading') : 'Sauvegarder' }}
+        </button>
+      </div>
     </div>
 
     <!-- Create/Edit Modal -->
