@@ -690,7 +690,7 @@ function printReport() { window.print() }
 
       <!-- ── SECTION 4 : Ratio & Personnes (collapsible) ── -->
       <div v-if="useEssence || useBareme" class="bg-white rounded-xl border border-ink-100 shadow-soft">
-        <div class="flex items-center gap-2 flex-wrap px-4 py-3" :class="autoRatioEnabled ? 'opacity-40 pointer-events-none' : ''">
+        <div v-if="useBareme" class="flex items-center gap-2 flex-wrap px-4 py-3" :class="autoRatioEnabled ? 'opacity-40 pointer-events-none' : ''">
           <span class="text-xs font-medium text-ink-500 flex-shrink-0">Ratio :</span>
           <div class="flex items-center gap-1 flex-wrap">
             <button v-for="preset in PRESET_RATIOS" :key="preset.value"
@@ -710,20 +710,22 @@ function printReport() { window.print() }
         </div>
 
         <div class="border-t border-ink-50 flex items-center gap-3 flex-wrap px-4 py-3">
-          <!-- Auto-ratio -->
-          <button @click="autoRatioEnabled = !autoRatioEnabled"
-            :class="autoRatioEnabled ? 'bg-green-500' : 'bg-ink-100'"
-            class="relative w-8 h-4 rounded-full transition-colors flex-shrink-0">
-            <span :class="autoRatioEnabled ? 'translate-x-4' : 'translate-x-0.5'" class="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform block" />
-          </button>
-          <span class="text-xs text-ink-500">Ratio auto — surplus max :</span>
-          <div class="flex items-center gap-1">
-            <input v-model.number="surplusMaxPer1000km" type="number" min="0" step="1"
-              class="w-14 px-2 py-1 text-xs border rounded-lg outline-none text-center transition-colors"
-              :class="autoRatioEnabled ? 'border-green-400 ring-1 ring-green-100' : 'border-ink-100'" />
-            <span class="text-xs text-ink-300">€/véh./1000km</span>
-          </div>
-          <span class="text-ink-100">·</span>
+          <template v-if="useBareme">
+            <!-- Auto-ratio -->
+            <button @click="autoRatioEnabled = !autoRatioEnabled"
+              :class="autoRatioEnabled ? 'bg-green-500' : 'bg-ink-100'"
+              class="relative w-8 h-4 rounded-full transition-colors flex-shrink-0">
+              <span :class="autoRatioEnabled ? 'translate-x-4' : 'translate-x-0.5'" class="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform block" />
+            </button>
+            <span class="text-xs text-ink-500">Ratio auto — surplus max :</span>
+            <div class="flex items-center gap-1">
+              <input v-model.number="surplusMaxPer1000km" type="number" min="0" step="1"
+                class="w-14 px-2 py-1 text-xs border rounded-lg outline-none text-center transition-colors"
+                :class="autoRatioEnabled ? 'border-green-400 ring-1 ring-green-100' : 'border-ink-100'" />
+              <span class="text-xs text-ink-300">€/véh./1000km</span>
+            </div>
+            <span class="text-ink-100">·</span>
+          </template>
           <!-- Personnes -->
           <div class="flex items-center gap-1.5">
             <button @click="decrementPersons" class="w-6 h-6 rounded-full border border-ink-100 text-ink-500 hover:bg-ink-50 text-sm font-medium flex items-center justify-center">
@@ -735,8 +737,8 @@ function printReport() { window.print() }
             </button>
             <span class="text-xs text-ink-300">pers.</span>
           </div>
-          <span v-if="autoRatioEnabled && calcDone" class="text-xs font-semibold text-green-700">→ ratio : {{ (autoRatio * 100).toFixed(1) }}%</span>
-          <span v-else-if="autoRatioEnabled" class="text-xs text-ink-300 italic">calculer d'abord</span>
+          <span v-if="useBareme && autoRatioEnabled && calcDone" class="text-xs font-semibold text-green-700">→ ratio : {{ (autoRatio * 100).toFixed(1) }}%</span>
+          <span v-else-if="useBareme && autoRatioEnabled" class="text-xs text-ink-300 italic">calculer d'abord</span>
         </div>
       </div>
 
