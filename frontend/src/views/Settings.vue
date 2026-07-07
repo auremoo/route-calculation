@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useVehiclesStore } from '../stores/vehicles'
 import { getOrsKey, setOrsKey } from '../lib/ors'
 import { getDataSafeConfig, setDataSafeConfig, exportData } from '../lib/backup'
 import { Car, Plus, Pencil, Trash2, Star, AlertTriangle, MapPin, Save, UploadCloud } from 'lucide-vue-next'
 
-const { t } = useI18n()
 const vehiclesStore = useVehiclesStore()
 
 const loading = ref(true)
@@ -63,10 +61,10 @@ const form = ref({
 })
 
 const fuelTypes = computed(() => [
-  { value: 'gasoline', label: t('settings.fuelTypeGasoline') },
-  { value: 'diesel', label: t('settings.fuelTypeDiesel') },
-  { value: 'electric', label: t('settings.fuelTypeElectric') },
-  { value: 'hybrid', label: t('settings.fuelTypeHybrid') },
+  { value: 'gasoline', label: 'Essence' },
+  { value: 'diesel', label: 'Diesel' },
+  { value: 'electric', label: 'Électrique' },
+  { value: 'hybrid', label: 'Hybride' },
 ])
 
 onMounted(() => {
@@ -149,12 +147,12 @@ function handleDelete() {
 <template>
   <div v-if="loading" class="flex flex-col items-center justify-center min-h-[60vh] gap-4">
     <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
-    <p class="text-ink-300 text-sm">{{ $t('common.loading') }}</p>
+    <p class="text-ink-300 text-sm">Chargement...</p>
   </div>
 
   <div v-else class="w-full max-w-3xl mx-auto">
     <div class="mb-6">
-      <h1 class="text-2xl font-bold mb-1 text-ink-900">{{ $t('settings.title') }}</h1>
+      <h1 class="text-2xl font-bold mb-1 text-ink-900">Paramètres — Véhicules</h1>
     </div>
 
     <div class="bg-white rounded-xl border border-ink-100 shadow-soft p-6 mb-6">
@@ -163,18 +161,18 @@ function handleDelete() {
           <Car :size="20" color="#f97316" />
         </div>
         <div class="flex-1">
-          <h2 class="text-base font-semibold text-ink-800">{{ $t('settings.title') }}</h2>
+          <h2 class="text-base font-semibold text-ink-800">Paramètres — Véhicules</h2>
         </div>
         <button @click="openCreate" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 text-white text-xs font-medium hover:bg-orange-600 transition-colors">
           <Plus :size="14" />
-          {{ $t('settings.addVehicle') }}
+          Ajouter un véhicule
         </button>
       </div>
 
       <div v-if="vehicles.length === 0" class="text-center py-8">
         <Car :size="40" class="mx-auto mb-3 text-ink-100" />
-        <p class="text-ink-500 font-medium text-sm">{{ $t('settings.noVehicles') }}</p>
-        <p class="text-ink-300 text-xs mt-1">{{ $t('settings.noVehiclesDesc') }}</p>
+        <p class="text-ink-500 font-medium text-sm">Aucun véhicule enregistré</p>
+        <p class="text-ink-300 text-xs mt-1">Ajoutez vos véhicules pour pré-remplir le calculateur.</p>
       </div>
 
       <div v-else class="space-y-2">
@@ -187,7 +185,7 @@ function handleDelete() {
               <span class="text-sm font-medium truncate text-ink-800">{{ v.name }}</span>
               <span v-if="v.is_default" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-orange-100 text-orange-700">
                 <Star :size="10" />
-                {{ $t('settings.default') }}
+                Par défaut
               </span>
             </div>
             <p class="text-xs text-ink-300 mt-0.5">
@@ -225,7 +223,7 @@ function handleDelete() {
           autocomplete="off"
         />
         <button @click="saveOrsKey" class="btn-primary whitespace-nowrap">
-          {{ orsSaved ? '✓ Enregistré' : $t('common.save') }}
+          {{ orsSaved ? '✓ Enregistré' : 'Enregistrer' }}
         </button>
       </div>
       <p class="text-xs text-ink-300 mt-2">
@@ -264,7 +262,7 @@ function handleDelete() {
         </div>
         <div class="flex justify-end">
           <button @click="saveDataSafeConfig" class="btn-secondary whitespace-nowrap">
-            {{ dataSafeSaved ? '✓ Enregistré' : $t('common.save') }}
+            {{ dataSafeSaved ? '✓ Enregistré' : 'Enregistrer' }}
           </button>
         </div>
       </div>
@@ -273,7 +271,7 @@ function handleDelete() {
         <p class="text-xs text-ink-300">{{ exportStatus || 'Exporte vos véhicules, votre clé ORS et vos préférences.' }}</p>
         <button @click="handleExport" :disabled="exporting" class="btn-primary whitespace-nowrap inline-flex items-center gap-1.5">
           <Save :size="14" />
-          {{ exporting ? $t('common.loading') : 'Sauvegarder' }}
+          {{ exporting ? 'Chargement...' : 'Sauvegarder' }}
         </button>
       </div>
     </div>
@@ -281,44 +279,44 @@ function handleDelete() {
     <!-- Create/Edit Modal -->
     <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showModal = false">
       <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6" @click.stop>
-        <h2 class="text-lg font-semibold mb-4 text-ink-900">{{ editingVehicle ? $t('settings.editVehicle') : $t('settings.addVehicle') }}</h2>
+        <h2 class="text-lg font-semibold mb-4 text-ink-900">{{ editingVehicle ? 'Modifier le véhicule' : 'Ajouter un véhicule' }}</h2>
         <div class="space-y-4">
           <div>
-            <label class="label">{{ $t('settings.name') }} *</label>
-            <input v-model="form.name" type="text" :placeholder="$t('settings.namePlaceholder')" class="input" />
+            <label class="label">Nom *</label>
+            <input v-model="form.name" type="text" placeholder="Ex: Renault Clio" class="input" />
           </div>
           <div>
-            <label class="label">{{ $t('settings.fuelType') }}</label>
+            <label class="label">Type de carburant</label>
             <select v-model="form.fuelType" class="input">
               <option v-for="ft in fuelTypes" :key="ft.value" :value="ft.value">{{ ft.label }}</option>
             </select>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="label">{{ $t('settings.consumption') }}</label>
+              <label class="label">Consommation</label>
               <input v-model.number="form.consumption" type="text" inputmode="decimal" class="input" />
               <p class="text-xs text-ink-300 mt-0.5">{{ form.fuelType === 'electric' ? 'kWh/100km' : 'L/100km' }}</p>
             </div>
             <div>
-              <label class="label">{{ $t('settings.fiscalPower') }}</label>
+              <label class="label">Puissance fiscale (CV fiscaux)</label>
               <select v-model.number="form.fiscalPower" class="input">
                 <option v-for="n in [1,2,3,4,5,6,7]" :key="n" :value="n">{{ n <= 3 ? '≤ 3' : n >= 7 ? '≥ 7' : n }} CV</option>
               </select>
             </div>
           </div>
           <div>
-            <label class="label">{{ $t('settings.defaultFuelPrice') }}</label>
-            <input v-model.number="form.defaultFuelPrice" type="text" inputmode="decimal" :placeholder="$t('settings.defaultFuelPricePlaceholder')" class="input" />
+            <label class="label">Prix carburant par défaut (€/L ou €/kWh)</label>
+            <input v-model.number="form.defaultFuelPrice" type="text" inputmode="decimal" placeholder="Ex: 1.85" class="input" />
           </div>
           <label class="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" v-model="form.isDefault" class="accent-orange-500" />
-            {{ $t('settings.isDefault') }}
+            Véhicule par défaut
           </label>
         </div>
         <div class="flex justify-end gap-3 mt-6">
-          <button @click="showModal = false" class="btn-secondary">{{ $t('common.cancel') }}</button>
+          <button @click="showModal = false" class="btn-secondary">Annuler</button>
           <button @click="handleSave" :disabled="saving || !form.name.trim()" class="btn-primary">
-            {{ saving ? $t('common.loading') : $t('common.save') }}
+            {{ saving ? 'Chargement...' : 'Enregistrer' }}
           </button>
         </div>
       </div>
@@ -329,13 +327,13 @@ function handleDelete() {
       <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6" @click.stop>
         <div class="flex items-center gap-3 mb-4">
           <AlertTriangle :size="24" color="#ef4444" />
-          <h2 class="text-lg font-semibold text-ink-900">{{ $t('settings.deleteVehicle') }}</h2>
+          <h2 class="text-lg font-semibold text-ink-900">Supprimer le véhicule</h2>
         </div>
-        <p class="text-ink-500 text-sm mb-2">{{ $t('settings.deleteConfirm') }}</p>
+        <p class="text-ink-500 text-sm mb-2">Ce véhicule sera définitivement supprimé.</p>
         <p class="font-medium text-sm text-ink-800">{{ deleteTarget.name }}</p>
         <div class="flex justify-end gap-3 mt-6">
-          <button @click="deleteTarget = null" class="btn-secondary">{{ $t('common.cancel') }}</button>
-          <button @click="handleDelete" class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors">{{ $t('common.delete') }}</button>
+          <button @click="deleteTarget = null" class="btn-secondary">Annuler</button>
+          <button @click="handleDelete" class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors">Supprimer</button>
         </div>
       </div>
     </div>

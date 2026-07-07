@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getLocale } from '../i18n/index'
 import { calculate as computeCalc } from '../lib/bareme'
 import { geocode as orsGeocode, route as orsRoute, hasOrsKey } from '../lib/ors'
 import { useVehiclesStore } from '../stores/vehicles'
@@ -296,10 +295,10 @@ function reset() {
 
 // ---- Formatting ----
 function fmtEur(n: number) {
-  return new Intl.NumberFormat(getLocale() === 'fr' ? 'fr-FR' : 'en-US', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 }).format(n)
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 }).format(n)
 }
 function fmtKm(n: number) {
-  return new Intl.NumberFormat(getLocale() === 'fr' ? 'fr-FR' : 'en-US', { maximumFractionDigits: 1 }).format(n) + ' km'
+  return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(n) + ' km'
 }
 function fmtDuration(min: number) {
   const h = Math.floor(min / 60), m = Math.round(min % 60)
@@ -315,7 +314,7 @@ const scaledDelta = computed((): number => {
   return essenceResult.value.total - baremeResult.value.allowance * effectiveRatio.value
 })
 
-const today = computed(() => new Date().toLocaleDateString(getLocale() === 'fr' ? 'fr-FR' : 'en-US', { day: '2-digit', month: 'long', year: 'numeric' }))
+const today = computed(() => new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }))
 
 function decrementPersons() { if (nbPersons.value > 1) nbPersons.value-- }
 function printReport() { window.print() }

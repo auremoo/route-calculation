@@ -1,15 +1,7 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { getLocale, setLocale } from '../i18n/index'
-import { ref } from 'vue'
 
 const route = useRoute()
-const locale = ref(getLocale())
-
-function switchLocale(lang: string) {
-  setLocale(lang)
-  locale.value = lang
-}
 </script>
 
 <template>
@@ -38,20 +30,6 @@ function switchLocale(lang: string) {
           Véhicules
         </router-link>
       </nav>
-
-      <!-- Lang switcher -->
-      <div class="flex items-center border border-ink-100 rounded overflow-hidden text-xs">
-        <button
-          @click="switchLocale('fr')"
-          :class="locale === 'fr' ? 'bg-ink-800 text-white' : 'text-ink-500 hover:bg-ink-50'"
-          class="px-2 py-1 transition-colors font-medium"
-        >FR</button>
-        <button
-          @click="switchLocale('en')"
-          :class="locale === 'en' ? 'bg-ink-800 text-white' : 'text-ink-500 hover:bg-ink-50'"
-          class="px-2 py-1 transition-colors font-medium"
-        >EN</button>
-      </div>
     </div>
   </header>
 </template>
