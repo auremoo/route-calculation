@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { calculate as computeCalc } from '../lib/bareme'
 import { geocode as orsGeocode, route as orsRoute, hasOrsKey } from '../lib/ors'
 import { useVehiclesStore } from '../stores/vehicles'
 import {
   Navigation, RotateCcw, Printer, AlertCircle, Fuel,
-  Plus, Minus, ChevronDown, ChevronUp, Car
+  Plus, Minus, ChevronDown, Car, Users, Info
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -81,8 +81,17 @@ const ratioLabel = computed(() => {
   return p ? p.label : `× ${ratioValue.value.toFixed(3)}`
 })
 
-// ---- Auto-ratio ----
-const autoRatioEnabled = ref(false)
+// ---- Ratio mode ----
+// 'full'   : indemnité barème complète
+// 'manual' : ratio fixe choisi à la main (× 1, ÷ 2, …)
+// 'auto'   : ratio calculé pour plafonner l'indemnité à « frais réels + surplus »
+type RatioMode = 'full' | 'manual' | 'auto'
+const ratioMode = ref<RatioMode>('full')
+const autoRatioEnabled = computed((): boolean => ratioMode.value === 'auto')
+
+// Base du surplus : par véhicule, ou par personne à bord
+type SurplusBasis = 'vehicle' | 'person'
+const surplusBasis = ref<SurplusBasis>('vehicle')
 const surplusMaxPer1000km = ref(10)
 const nbPersons = ref(1)
 
@@ -90,14 +99,42 @@ const nbVehicles = computed((): number =>
   convoyEnabled.value ? 1 + convoyExtras.value.length : 1
 )
 
+// Nombre d'unités par lesquelles le surplus est multiplié
+const surplusUnits = computed((): number =>
+  surplusBasis.value === 'person' ? Math.max(1, nbPersons.value) : nbVehicles.value
+)
+const surplusUnitLabel = computed((): string =>
+  surplusBasis.value === 'person'
+    ? `${surplusUnits.value} pers.`
+    : `${surplusUnits.value} véh.`
+)
+// Surplus maximal autorisé pour ce trajet (€)
+const surplusAllowed = computed((): number =>
+  surplusMaxPer1000km.value * (totalDistance.value / 1000) * surplusUnits.value
+)
+// Plafond d'indemnité visé : frais réels + surplus
+const autoCap = computed((): number =>
+  (essenceResult.value?.total ?? 0) + surplusAllowed.value
+)
+
 const autoRatio = computed((): number => {
   if (!essenceResult.value || !baremeResult.value || baremeResult.value.allowance === 0) return 1
-  const maxAllowance = essenceResult.value.total + (surplusMaxPer1000km.value * (totalDistance.value / 1000) * nbVehicles.value)
-  return Math.min(1, Math.max(0, maxAllowance / baremeResult.value.allowance))
+  return Math.min(1, Math.max(0, autoCap.value / baremeResult.value.allowance))
 })
 const effectiveRatio = computed((): number =>
-  autoRatioEnabled.value ? autoRatio.value : ratioValue.value
+  ratioMode.value === 'auto' ? autoRatio.value
+    : ratioMode.value === 'manual' ? ratioValue.value
+      : 1
 )
+
+// Indemnité finalement retenue, et surplus réellement encaissé par rapport aux frais réels
+const finalAllowance = computed((): number =>
+  baremeResult.value ? baremeResult.value.allowance * effectiveRatio.value : 0
+)
+const appliedSurplus = computed((): number => {
+  if (!essenceResult.value || !baremeResult.value) return 0
+  return finalAllowance.value - essenceResult.value.total
+})
 
 // ---- Convoy ----
 const convoyEnabled = ref(false)
@@ -168,6 +205,39 @@ const calcError = ref<string | null>(null)
 let fromTimer: ReturnType<typeof setTimeout>
 let toTimer: ReturnType<typeof setTimeout>
 
+// ---- Persisted sharing preferences ----
+const PREFS_KEY = 'routecalc_sharing_prefs'
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY)
+    if (!raw) return
+    const p = JSON.parse(raw)
+    if (p.ratioMode === 'full' || p.ratioMode === 'manual' || p.ratioMode === 'auto') ratioMode.value = p.ratioMode
+    if (p.surplusBasis === 'vehicle' || p.surplusBasis === 'person') surplusBasis.value = p.surplusBasis
+    if (typeof p.surplusMaxPer1000km === 'number') surplusMaxPer1000km.value = p.surplusMaxPer1000km
+    if (typeof p.nbPersons === 'number' && p.nbPersons >= 1) nbPersons.value = p.nbPersons
+    if (typeof p.ratioValue === 'number' && p.ratioValue > 0 && p.ratioValue <= 1) {
+      ratioValue.value = p.ratioValue
+      selectedRatioPreset.value = PRESET_RATIOS.some(r => r.value === p.ratioValue) ? p.ratioValue : -1
+    }
+  } catch { /* prefs corrompues : on garde les valeurs par défaut */ }
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({
+      ratioMode: ratioMode.value,
+      surplusBasis: surplusBasis.value,
+      surplusMaxPer1000km: surplusMaxPer1000km.value,
+      nbPersons: nbPersons.value,
+      ratioValue: ratioValue.value,
+    }))
+  } catch { /* localStorage indisponible : les préférences ne sont pas mémorisées */ }
+}
+
+watch([ratioMode, surplusBasis, surplusMaxPer1000km, nbPersons, ratioValue], savePrefs)
+
 onMounted(() => {
   vehiclesStore.load()
   vehicles.value = vehiclesStore.vehicles
@@ -175,6 +245,7 @@ onMounted(() => {
   if (def) applyVehicle(def)
   else if (vehicles.value.length) applyVehicle(vehicles.value[0])
 
+  loadPrefs()
   orsAvailable.value = hasOrsKey()
 })
 
@@ -305,19 +376,30 @@ function fmtDuration(min: number) {
   return h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`
 }
 
-const delta = computed((): number => {
-  if (!essenceResult.value || !baremeResult.value) return 0
-  return essenceResult.value.total - baremeResult.value.allowance
-})
-const scaledDelta = computed((): number => {
-  if (!essenceResult.value || !baremeResult.value) return 0
-  return essenceResult.value.total - baremeResult.value.allowance * effectiveRatio.value
-})
+// Écart final : indemnité retenue − frais réels.
+// Positif = l'indemnité dépasse les frais (le conducteur est gagnant).
+// C'est le même montant que `appliedSurplus`, exposé sous un nom parlant pour l'affichage.
+const finalDelta = computed((): number => appliedSurplus.value)
 
 const today = computed(() => new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }))
 
 function decrementPersons() { if (nbPersons.value > 1) nbPersons.value-- }
 function printReport() { window.print() }
+
+// ---- Sharing panel UI ----
+const helpOpen = ref(false)
+const RATIO_MODES: { value: RatioMode; label: string; hint: string }[] = [
+  { value: 'full', label: 'Barème entier', hint: "Le conducteur demande l'indemnité officielle complète." },
+  { value: 'manual', label: 'Ratio fixe', hint: "L'indemnité est multipliée par un ratio que vous choisissez." },
+  { value: 'auto', label: 'Plafond auto', hint: 'Le conducteur récupère ses frais réels, plus un surplus plafonné.' },
+]
+const ratioModeHint = computed((): string =>
+  RATIO_MODES.find(m => m.value === ratioMode.value)?.hint ?? ''
+)
+// Libellé court du ratio appliqué, réutilisé partout (écran + PDF)
+const appliedRatioLabel = computed((): string =>
+  ratioMode.value === 'auto' ? `auto ${(autoRatio.value * 100).toFixed(1)}%` : ratioLabel.value
+)
 </script>
 
 <template>
@@ -351,9 +433,17 @@ function printReport() { window.print() }
             <span class="rc-label">Distance</span>
             <span class="rc-value">{{ fmtKm(totalDistance) }}<span v-if="roundTrip"> (aller-retour)</span></span>
           </div>
+          <div v-if="nbPersons > 1" class="rc-trip-item">
+            <span class="rc-label">Personnes</span>
+            <span class="rc-value">{{ nbPersons }}</span>
+          </div>
           <div v-if="effectiveRatio !== 1" class="rc-trip-item">
             <span class="rc-label">Ratio appliqué</span>
-            <span class="rc-value rc-orange">{{ autoRatioEnabled ? `auto ${(autoRatio * 100).toFixed(1)}%` : ratioLabel }}</span>
+            <span class="rc-value rc-orange">{{ appliedRatioLabel }}</span>
+          </div>
+          <div v-if="ratioMode === 'auto'" class="rc-trip-item">
+            <span class="rc-label">Règle</span>
+            <span class="rc-value">Frais réels + {{ surplusMaxPer1000km }} €/1000 km/{{ surplusBasis === 'person' ? 'personne' : 'véhicule' }}</span>
           </div>
         </div>
       </div>
@@ -384,11 +474,12 @@ function printReport() { window.print() }
             <tr><td>Taux appliqué</td><td>{{ baremeResult.rate.toFixed(3) }} €/km</td></tr>
             <tr v-if="effectiveRatio !== 1"><td>Indemnité brute</td><td>{{ fmtEur(baremeResult.allowance) }}</td></tr>
             <tr class="rc-row-total">
-              <td>INDEMNITÉ<span v-if="effectiveRatio !== 1"> ({{ autoRatioEnabled ? `auto ${(autoRatio * 100).toFixed(1)}%` : ratioLabel }})</span></td>
+              <td>INDEMNITÉ<span v-if="effectiveRatio !== 1"> ({{ appliedRatioLabel }})</span></td>
               <td>{{ fmtEur(baremeResult.allowance * effectiveRatio) }}</td>
             </tr>
             <tr class="rc-row-sub"><td>soit</td><td>{{ fmtEur(baremeResult.perKm * effectiveRatio) }}/km</td></tr>
-            <tr v-if="nbPersons > 1" class="rc-row-person"><td>Par personne ({{ nbPersons }})</td><td>{{ fmtEur(baremeResult.allowance * effectiveRatio / nbPersons) }}</td></tr>
+            <tr v-if="essenceResult && appliedSurplus > 0" class="rc-row-sub"><td>dont surplus</td><td>+ {{ fmtEur(appliedSurplus) }}</td></tr>
+            <tr v-if="nbPersons > 1" class="rc-row-person"><td>Par personne ({{ nbPersons }})</td><td>{{ fmtEur(finalAllowance / nbPersons) }}</td></tr>
           </table>
         </div>
       </div>
@@ -401,7 +492,7 @@ function printReport() { window.print() }
             <tr>
               <th class="rc-th-left">Véhicule</th>
               <th v-if="useEssence" class="rc-th-right">Coût réel ⛽</th>
-              <th v-if="useBareme" class="rc-th-right">Indemnité km 📋<span v-if="effectiveRatio !== 1"> ({{ autoRatioEnabled ? `${(autoRatio * 100).toFixed(1)}%` : ratioLabel }})</span></th>
+              <th v-if="useBareme" class="rc-th-right">Indemnité km 📋<span v-if="effectiveRatio !== 1"> ({{ appliedRatioLabel }})</span></th>
             </tr>
           </thead>
           <tbody>
@@ -427,15 +518,15 @@ function printReport() { window.print() }
       </div>
 
       <!-- Comparaison finale -->
-      <div v-if="essenceResult && baremeResult" class="rc-comparison" :class="scaledDelta > 0 ? 'rc-cmp-orange' : scaledDelta < 0 ? 'rc-cmp-blue' : 'rc-cmp-gray'">
+      <div v-if="essenceResult && baremeResult" class="rc-comparison" :class="finalDelta > 0 ? 'rc-cmp-orange' : finalDelta < 0 ? 'rc-cmp-blue' : 'rc-cmp-gray'">
         <div class="rc-cmp-label">
-          <strong v-if="scaledDelta > 0">Les frais kilométriques sont plus avantageux</strong>
-          <strong v-else-if="scaledDelta < 0">Le coût réel dépasse le barème</strong>
-          <strong v-else>Méthodes équivalentes</strong>
+          <strong v-if="finalDelta > 0">L'indemnité dépasse les frais réels</strong>
+          <strong v-else-if="finalDelta < 0">L'indemnité ne couvre pas les frais réels</strong>
+          <strong v-else>Indemnité égale aux frais réels</strong>
         </div>
         <div class="rc-cmp-delta">
-          <span class="rc-cmp-sign">Écart</span>
-          <span class="rc-cmp-amount">{{ scaledDelta >= 0 ? '+' : '' }}{{ fmtEur(scaledDelta) }}</span>
+          <span class="rc-cmp-sign">Indemnité − frais réels</span>
+          <span class="rc-cmp-amount">{{ finalDelta >= 0 ? '+' : '' }}{{ fmtEur(finalDelta) }}</span>
         </div>
       </div>
 
@@ -673,71 +764,188 @@ function printReport() { window.print() }
                 <span class="font-medium">{{ baremeResult.rate.toFixed(3) }} €/km</span>
               </div>
               <div class="flex justify-between font-bold text-orange-600 text-base pt-1 border-t border-orange-100">
-                <span>Indemnité<span v-if="effectiveRatio !== 1" class="font-normal text-xs text-orange-400 ml-1">{{ autoRatioEnabled ? `auto ${(autoRatio * 100).toFixed(1)}%` : ratioLabel }}</span><span v-if="convoyEnabled && convoyResults.length > 1" class="font-normal text-xs text-orange-400 ml-1">({{ convoyResults.length }} véh.)</span></span>
+                <span>Indemnité<span v-if="effectiveRatio !== 1" class="font-normal text-xs text-orange-400 ml-1">{{ appliedRatioLabel }}</span><span v-if="convoyEnabled && convoyResults.length > 1" class="font-normal text-xs text-orange-400 ml-1">({{ convoyResults.length }} véh.)</span></span>
                 <span>{{ fmtEur(baremeResult.allowance * effectiveRatio) }}</span>
               </div>
               <p v-if="effectiveRatio !== 1" class="text-xs text-ink-300 text-right">(brut : {{ fmtEur(baremeResult.allowance) }})</p>
               <p class="text-xs text-ink-300 text-right">{{ fmtEur(baremeResult.perKm * effectiveRatio) }}/km</p>
+              <div v-if="essenceResult && appliedSurplus > 0" class="flex justify-between text-xs text-ink-300">
+                <span>dont surplus au-delà des frais réels</span>
+                <span>+ {{ fmtEur(appliedSurplus) }}</span>
+              </div>
               <div v-if="nbPersons > 1" class="flex justify-between text-sm font-semibold text-green-700 pt-1 border-t border-orange-50">
                 <span>Par personne ({{ nbPersons }})</span>
-                <span>{{ fmtEur(baremeResult.allowance * effectiveRatio / nbPersons) }}</span>
+                <span>{{ fmtEur(finalAllowance / nbPersons) }}</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- ── SECTION 4 : Ratio & Personnes (collapsible) ── -->
+      <!-- ── SECTION 4 : Partage & indemnité ── -->
       <div v-if="useEssence || useBareme" class="bg-white rounded-xl border border-ink-100 shadow-soft">
-        <div v-if="useBareme" class="flex items-center gap-2 flex-wrap px-4 py-3" :class="autoRatioEnabled ? 'opacity-40 pointer-events-none' : ''">
-          <span class="text-xs font-medium text-ink-500 flex-shrink-0">Ratio :</span>
-          <div class="flex items-center gap-1 flex-wrap">
+
+        <!-- En-tête -->
+        <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-ink-50">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+              <Users :size="15" class="text-green-600" />
+            </div>
+            <div>
+              <p class="text-sm font-semibold text-ink-800">Partage</p>
+              <p class="text-xs text-ink-300">Qui paie quoi, et combien le conducteur demande</p>
+            </div>
+          </div>
+          <button @click="helpOpen = !helpOpen"
+            class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors flex-shrink-0"
+            :class="helpOpen ? 'bg-ink-100 text-ink-700' : 'text-ink-300 hover:bg-ink-50'">
+            <Info :size="13" /> Aide
+          </button>
+        </div>
+
+        <!-- Aide -->
+        <div v-if="helpOpen" class="px-4 py-3 bg-ink-50 border-b border-ink-50 text-xs text-ink-500 space-y-2 leading-relaxed">
+          <p><strong class="text-ink-700">⛽ Coût carburant</strong> — ce que le trajet coûte réellement (carburant + péages).</p>
+          <p><strong class="text-ink-700">📋 Frais kilométriques</strong> — l'indemnité du barème fiscal 2025. Elle couvre bien plus que le carburant (usure, entretien, assurance), donc elle est souvent beaucoup plus élevée que le coût réel.</p>
+          <p><strong class="text-ink-700">Mode de partage</strong> — entre amis, demander le barème entier est souvent excessif. Les trois modes ci-dessous permettent de réduire l'indemnité demandée :</p>
+          <ul class="list-disc pl-4 space-y-1">
+            <li><strong>Barème entier</strong> : l'indemnité officielle, sans réduction.</li>
+            <li><strong>Ratio fixe</strong> : l'indemnité × un ratio choisi (÷ 2, 2/3, …).</li>
+            <li><strong>Plafond auto</strong> : le conducteur récupère ses frais réels + un surplus limité. Le ratio est calculé automatiquement pour atteindre ce plafond.</li>
+          </ul>
+          <p><strong class="text-ink-700">Par personne</strong> — tous les montants sont divisés par le nombre de personnes à bord, conducteur compris.</p>
+        </div>
+
+        <!-- Personnes à bord -->
+        <div class="px-4 py-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-ink-700">Personnes à bord</p>
+            <p class="text-xs text-ink-300">Conducteur compris — divise tous les totaux</p>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button @click="decrementPersons" :disabled="nbPersons <= 1"
+              class="w-8 h-8 rounded-full border border-ink-100 text-ink-500 hover:bg-ink-50 disabled:opacity-30 flex items-center justify-center transition-colors">
+              <Minus :size="13" />
+            </button>
+            <span class="text-base font-bold w-6 text-center tabular-nums">{{ nbPersons }}</span>
+            <button @click="nbPersons++"
+              class="w-8 h-8 rounded-full border border-ink-100 text-ink-500 hover:bg-ink-50 flex items-center justify-center transition-colors">
+              <Plus :size="13" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Mode d'indemnité -->
+        <div v-if="useBareme" class="border-t border-ink-50 px-4 py-3 space-y-3">
+          <p class="text-sm font-medium text-ink-700">Indemnité demandée par le conducteur</p>
+
+          <!-- Sélecteur de mode -->
+          <div class="grid grid-cols-3 gap-1 p-1 bg-ink-50 rounded-lg">
+            <button v-for="m in RATIO_MODES" :key="m.value" @click="ratioMode = m.value"
+              class="px-2 py-1.5 rounded-md text-xs font-medium transition-colors"
+              :class="ratioMode === m.value ? 'bg-white text-orange-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'">
+              {{ m.label }}
+            </button>
+          </div>
+          <p class="text-xs text-ink-300">{{ ratioModeHint }}</p>
+
+          <!-- Mode : ratio fixe -->
+          <div v-if="ratioMode === 'manual'" class="flex items-center gap-2 flex-wrap">
             <button v-for="preset in PRESET_RATIOS" :key="preset.value"
               @click="applyPreset(preset.value)"
               :class="selectedRatioPreset === preset.value ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-ink-500 border-ink-100 hover:border-orange-300'"
               class="px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors">
               {{ preset.label }}
             </button>
+            <div class="flex items-center gap-1">
+              <span class="text-xs text-ink-300">×</span>
+              <input v-model="customRatio" @input="onCustomRatio" type="text" placeholder="0.XX"
+                :class="selectedRatioPreset === -1 ? 'border-orange-400 ring-1 ring-orange-200' : 'border-ink-100'"
+                class="w-14 px-2 py-1 text-xs border rounded-lg outline-none text-center" />
+            </div>
           </div>
-          <div class="flex items-center gap-1">
-            <span class="text-xs text-ink-300">×</span>
-            <input v-model="customRatio" @input="onCustomRatio" type="text" placeholder="0.XX"
-              :class="selectedRatioPreset === -1 ? 'border-orange-400 ring-1 ring-orange-200' : 'border-ink-100'"
-              class="w-14 px-2 py-1 text-xs border rounded-lg outline-none text-center" />
+
+          <!-- Mode : plafond auto -->
+          <div v-if="ratioMode === 'auto'" class="space-y-3">
+            <div class="px-3 py-2.5 bg-green-50 rounded-lg space-y-2.5">
+              <p class="text-xs text-green-800 leading-relaxed">
+                Le conducteur récupère <strong>ses frais réels</strong>, plus un surplus de&nbsp;:
+              </p>
+              <div class="flex items-center gap-1.5 flex-wrap text-xs">
+                <input v-model.number="surplusMaxPer1000km" type="number" min="0" step="1"
+                  class="w-16 px-2 py-1 border border-green-400 bg-white rounded-lg outline-none text-center font-semibold" />
+                <span class="text-green-800">€ par 1 000 km et par</span>
+              </div>
+              <!-- Base du surplus -->
+              <div class="grid grid-cols-2 gap-1 p-1 bg-white/70 rounded-lg">
+                <button @click="surplusBasis = 'vehicle'"
+                  class="px-2 py-1.5 rounded-md text-xs font-medium transition-colors"
+                  :class="surplusBasis === 'vehicle' ? 'bg-green-500 text-white shadow-sm' : 'text-green-700 hover:bg-white'">
+                  véhicule
+                </button>
+                <button @click="surplusBasis = 'person'"
+                  class="px-2 py-1.5 rounded-md text-xs font-medium transition-colors"
+                  :class="surplusBasis === 'person' ? 'bg-green-500 text-white shadow-sm' : 'text-green-700 hover:bg-white'">
+                  personne
+                </button>
+              </div>
+              <p class="text-xs text-green-700">
+                <template v-if="surplusBasis === 'vehicle'">
+                  Le surplus est le même quel que soit le nombre de passagers, et se partage entre eux.
+                </template>
+                <template v-else>
+                  Chaque passager rapporte {{ surplusMaxPer1000km }} € par 1 000 km au conducteur.
+                </template>
+              </p>
+            </div>
+
+            <!-- Récapitulatif du calcul -->
+            <div v-if="calcDone && essenceResult && baremeResult" class="text-xs space-y-1 px-3 py-2.5 border border-ink-100 rounded-lg">
+              <div class="flex justify-between text-ink-500">
+                <span>Frais réels du trajet</span>
+                <span class="font-medium tabular-nums">{{ fmtEur(essenceResult.total) }}</span>
+              </div>
+              <div class="flex justify-between text-ink-500">
+                <span>+ surplus ({{ surplusMaxPer1000km }} € × {{ surplusUnitLabel }} × {{ (totalDistance / 1000).toFixed(3) }})</span>
+                <span class="font-medium tabular-nums">{{ fmtEur(surplusAllowed) }}</span>
+              </div>
+              <div class="flex justify-between font-semibold text-ink-700 pt-1 border-t border-ink-50">
+                <span>= plafond visé</span>
+                <span class="tabular-nums">{{ fmtEur(autoCap) }}</span>
+              </div>
+              <div class="flex justify-between text-ink-300 pt-1">
+                <span>Indemnité brute du barème</span>
+                <span class="tabular-nums">{{ fmtEur(baremeResult.allowance) }}</span>
+              </div>
+              <div class="flex justify-between font-bold text-green-700 pt-1 border-t border-ink-50">
+                <span>→ ratio appliqué</span>
+                <span class="tabular-nums">{{ (autoRatio * 100).toFixed(1) }} %</span>
+              </div>
+              <p v-if="autoRatio >= 1" class="text-ink-300 pt-1">
+                Le barème est déjà sous le plafond : aucune réduction n'est nécessaire.
+              </p>
+            </div>
+            <p v-else class="text-xs text-ink-300 italic">Lancez le calcul pour voir le ratio obtenu.</p>
           </div>
-          <span v-if="!autoRatioEnabled && ratioValue !== 1" class="text-xs text-orange-600 font-medium">→ résultats × {{ ratioLabel.replace('× ', '') }}</span>
         </div>
 
-        <div class="border-t border-ink-50 flex items-center gap-3 flex-wrap px-4 py-3">
-          <template v-if="useBareme">
-            <!-- Auto-ratio -->
-            <button @click="autoRatioEnabled = !autoRatioEnabled"
-              :class="autoRatioEnabled ? 'bg-green-500' : 'bg-ink-100'"
-              class="relative w-8 h-4 rounded-full transition-colors flex-shrink-0">
-              <span :class="autoRatioEnabled ? 'translate-x-4' : 'translate-x-0.5'" class="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform block" />
-            </button>
-            <span class="text-xs text-ink-500">Ratio auto — surplus max :</span>
-            <div class="flex items-center gap-1">
-              <input v-model.number="surplusMaxPer1000km" type="number" min="0" step="1"
-                class="w-14 px-2 py-1 text-xs border rounded-lg outline-none text-center transition-colors"
-                :class="autoRatioEnabled ? 'border-green-400 ring-1 ring-green-100' : 'border-ink-100'" />
-              <span class="text-xs text-ink-300">€/véh./1000km</span>
+        <!-- Bandeau récap « par personne » -->
+        <div v-if="calcDone && nbPersons > 1" class="border-t border-ink-50 px-4 py-3 bg-green-50/60 rounded-b-xl">
+          <p class="text-xs font-medium text-green-800 mb-1.5">Chacun des {{ nbPersons }} passagers paie</p>
+          <div class="flex items-center gap-4 flex-wrap">
+            <div v-if="essenceResult">
+              <p class="text-xs text-ink-300">Au coût réel ⛽</p>
+              <p class="text-base font-bold text-blue-700">{{ fmtEur(essenceResult.total / nbPersons) }}</p>
             </div>
-            <span class="text-ink-100">·</span>
-          </template>
-          <!-- Personnes -->
-          <div class="flex items-center gap-1.5">
-            <button @click="decrementPersons" class="w-6 h-6 rounded-full border border-ink-100 text-ink-500 hover:bg-ink-50 text-sm font-medium flex items-center justify-center">
-              <Minus :size="10" />
-            </button>
-            <span class="text-xs font-bold w-4 text-center">{{ nbPersons }}</span>
-            <button @click="nbPersons++" class="w-6 h-6 rounded-full border border-ink-100 text-ink-500 hover:bg-ink-50 text-sm font-medium flex items-center justify-center">
-              <Plus :size="10" />
-            </button>
-            <span class="text-xs text-ink-300">pers.</span>
+            <div v-if="baremeResult">
+              <p class="text-xs text-ink-300">Au barème 📋<span v-if="effectiveRatio !== 1"> ({{ appliedRatioLabel }})</span></p>
+              <p class="text-base font-bold text-orange-700">{{ fmtEur(finalAllowance / nbPersons) }}</p>
+            </div>
+            <div v-if="essenceResult && baremeResult && appliedSurplus > 0">
+              <p class="text-xs text-ink-300">dont surplus conducteur</p>
+              <p class="text-base font-bold text-green-700">+ {{ fmtEur(appliedSurplus / nbPersons) }}</p>
+            </div>
           </div>
-          <span v-if="useBareme && autoRatioEnabled && calcDone" class="text-xs font-semibold text-green-700">→ ratio : {{ (autoRatio * 100).toFixed(1) }}%</span>
-          <span v-else-if="useBareme && autoRatioEnabled" class="text-xs text-ink-300 italic">calculer d'abord</span>
         </div>
       </div>
 
@@ -821,7 +1029,7 @@ function printReport() { window.print() }
           <thead><tr class="text-ink-300 border-b border-ink-50">
             <th class="text-left pb-2 font-medium">Véhicule</th>
             <th v-if="useEssence" class="text-right pb-2 font-medium text-blue-500">⛽ Coût réel</th>
-            <th v-if="useBareme" class="text-right pb-2 font-medium text-orange-500">📋 Indemnité<span v-if="effectiveRatio !== 1"> {{ autoRatioEnabled ? `auto ${(autoRatio * 100).toFixed(1)}%` : ratioLabel }}</span></th>
+            <th v-if="useBareme" class="text-right pb-2 font-medium text-orange-500">📋 Indemnité<span v-if="effectiveRatio !== 1"> {{ appliedRatioLabel }}</span></th>
           </tr></thead>
           <tbody>
             <tr v-for="r in convoyResults" :key="r.label" class="border-b border-ink-50">
@@ -848,22 +1056,24 @@ function printReport() { window.print() }
       <!-- Comparaison -->
       <div v-if="calcDone && essenceResult && baremeResult"
         class="rounded-xl border p-4 flex flex-wrap items-center justify-between gap-3"
-        :class="scaledDelta > 0 ? 'bg-orange-50 border-orange-200' : scaledDelta < 0 ? 'bg-blue-50 border-blue-200' : 'bg-ink-50 border-ink-100'">
+        :class="finalDelta > 0 ? 'bg-orange-50 border-orange-200' : finalDelta < 0 ? 'bg-blue-50 border-blue-200' : 'bg-ink-50 border-ink-100'">
         <div class="min-w-0">
-          <p class="font-semibold text-sm" :class="scaledDelta > 0 ? 'text-orange-800' : scaledDelta < 0 ? 'text-blue-800' : 'text-ink-700'">
-            <span v-if="scaledDelta > 0">📋 Frais kilométriques supérieurs</span>
-            <span v-else-if="scaledDelta < 0">⛽ Coût réel supérieur à l'indemnité</span>
-            <span v-else>⚖️ Méthodes équivalentes</span>
+          <p class="font-semibold text-sm" :class="finalDelta > 0 ? 'text-orange-800' : finalDelta < 0 ? 'text-blue-800' : 'text-ink-700'">
+            <span v-if="finalDelta > 0">📋 L'indemnité dépasse les frais réels</span>
+            <span v-else-if="finalDelta < 0">⛽ L'indemnité ne couvre pas les frais réels</span>
+            <span v-else>⚖️ Indemnité égale aux frais réels</span>
           </p>
           <p class="text-xs text-ink-300 mt-0.5">
-            <span v-if="scaledDelta > 0">L'indemnité km couvre mieux le trajet</span>
-            <span v-else-if="scaledDelta < 0">Le coût réel dépasse l'indemnité de {{ fmtEur(Math.abs(scaledDelta)) }}</span>
+            <span v-if="finalDelta > 0">
+              Le conducteur encaisse {{ fmtEur(finalDelta) }} de plus que ce que le trajet lui coûte<span v-if="nbPersons > 1"> — soit {{ fmtEur(finalDelta / nbPersons) }} par personne</span>
+            </span>
+            <span v-else-if="finalDelta < 0">Il manque {{ fmtEur(Math.abs(finalDelta)) }} pour couvrir le coût du trajet</span>
           </p>
         </div>
         <div class="text-right flex-shrink-0">
-          <p class="text-xs text-ink-300 mb-0.5">Écart<span v-if="effectiveRatio !== 1" class="ml-1 text-orange-500">{{ autoRatioEnabled ? `auto ${(autoRatio * 100).toFixed(1)}%` : ratioLabel }}</span></p>
-          <p class="text-lg font-bold" :class="scaledDelta > 0 ? 'text-orange-700' : scaledDelta < 0 ? 'text-blue-700' : 'text-ink-700'">
-            {{ scaledDelta >= 0 ? '+' : '' }}{{ fmtEur(scaledDelta) }}
+          <p class="text-xs text-ink-300 mb-0.5">Indemnité − frais réels<span v-if="effectiveRatio !== 1" class="ml-1 text-orange-500">{{ appliedRatioLabel }}</span></p>
+          <p class="text-lg font-bold" :class="finalDelta > 0 ? 'text-orange-700' : finalDelta < 0 ? 'text-blue-700' : 'text-ink-700'">
+            {{ finalDelta >= 0 ? '+' : '' }}{{ fmtEur(finalDelta) }}
           </p>
         </div>
       </div>
