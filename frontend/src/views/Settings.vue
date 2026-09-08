@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useVehiclesStore } from '../stores/vehicles'
 import { getOrsKey, setOrsKey } from '../lib/ors'
+import NumberField from '../components/NumberField.vue'
 import { getDataSafeConfig, setDataSafeConfig, exportData } from '../lib/backup'
 import { Car, Plus, Pencil, Trash2, Star, AlertTriangle, MapPin, Save, UploadCloud } from 'lucide-vue-next'
 
@@ -53,12 +54,16 @@ async function handleExport() {
 const form = ref({
   name: '',
   fuelType: 'gasoline',
-  consumption: 6.5,
+  consumption: 6.5 as number | null,
   fiscalPower: 5,
   defaultFuelPrice: null as number | null,
   isDefault: false,
   sortOrder: 0,
 })
+
+function fmtNum(n: number) {
+  return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 3 }).format(n)
+}
 
 const fuelTypes = computed(() => [
   { value: 'gasoline', label: 'Essence' },
@@ -112,7 +117,7 @@ function openEdit(v: any) {
 }
 
 function handleSave() {
-  if (!form.value.name.trim() || form.value.consumption <= 0) return
+  if (!form.value.name.trim() || !form.value.consumption || form.value.consumption <= 0) return
   saving.value = true
   try {
     const payload = {
@@ -189,7 +194,7 @@ function handleDelete() {
               </span>
             </div>
             <p class="text-xs text-ink-300 mt-0.5">
-              {{ getFuelTypeLabel(v.fuel_type) }} · {{ v.consumption }} {{ v.fuel_type === 'electric' ? 'kWh' : 'L' }}/100km · {{ v.fiscal_power }} CV
+              {{ getFuelTypeLabel(v.fuel_type) }} · {{ fmtNum(v.consumption) }} {{ v.fuel_type === 'electric' ? 'kWh' : 'L' }}/100km · {{ v.fiscal_power }} CV
               <span v-if="v.default_fuel_price"> · {{ v.default_fuel_price }}€/{{ v.fuel_type === 'electric' ? 'kWh' : 'L' }}</span>
             </p>
           </div>
@@ -294,7 +299,7 @@ function handleDelete() {
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="label">Consommation</label>
-              <input v-model.number="form.consumption" type="text" inputmode="decimal" class="input" />
+              <NumberField v-model="form.consumption" class="input" />
               <p class="text-xs text-ink-300 mt-0.5">{{ form.fuelType === 'electric' ? 'kWh/100km' : 'L/100km' }}</p>
             </div>
             <div>
@@ -306,7 +311,7 @@ function handleDelete() {
           </div>
           <div>
             <label class="label">Prix carburant par défaut (€/L ou €/kWh)</label>
-            <input v-model.number="form.defaultFuelPrice" type="text" inputmode="decimal" placeholder="Ex: 1.85" class="input" />
+            <NumberField v-model="form.defaultFuelPrice" placeholder="Ex: 1,85" class="input" />
           </div>
           <label class="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" v-model="form.isDefault" class="accent-orange-500" />

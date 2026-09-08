@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { calculate as computeCalc } from '../lib/bareme'
 import { geocode as orsGeocode, route as orsRoute, hasOrsKey } from '../lib/ors'
 import { useVehiclesStore } from '../stores/vehicles'
+import NumberField from '../components/NumberField.vue'
 import {
   Navigation, RotateCcw, Printer, AlertCircle, Fuel,
   Plus, Minus, ChevronDown, Car, Users, Info
@@ -34,21 +35,24 @@ const routeDuration = ref<number | null>(null)
 const manualDistance = ref<number | null>(null)
 const roundTrip = ref(false)
 
+// Un champ laissé vide compte pour 0 dans les calculs
+function num(v: number | null): number { return v ?? 0 }
+
 const effectiveDistance = computed(() => routeDistance.value ?? manualDistance.value ?? 0)
 const totalDistance = computed(() => roundTrip.value ? effectiveDistance.value * 2 : effectiveDistance.value)
 
 // ---- Fuel column ----
 const useEssence = ref(true)
 const avoidTolls = ref(false)
-const tollAmount = ref<number>(0)
-const consumption = ref<number>(6.5)
-const fuelPrice = ref<number>(1.85)
+const tollAmount = ref<number | null>(0)
+const consumption = ref<number | null>(6.5)
+const fuelPrice = ref<number | null>(1.85)
 const isElectric = computed(() => selectedVehicle.value?.fuel_type === 'electric')
 
 // ---- Barème column ----
 const useBareme = ref(true)
-const fiscalPower = ref<number>(5)
-const annualKmAlready = ref<number>(0)
+const fiscalPower = ref<number | null>(5)
+const annualKmAlready = ref<number | null>(0)
 
 // ---- Ratio ----
 const PRESET_RATIOS = [
@@ -78,7 +82,7 @@ function onCustomRatio() {
 const ratioLabel = computed(() => {
   if (customRatio.value) return `× ${customRatio.value}`
   const p = PRESET_RATIOS.find(r => r.value === ratioValue.value)
-  return p ? p.label : `× ${ratioValue.value.toFixed(3)}`
+  return p ? p.label : `× ${fmtNum(ratioValue.value, 3)}`
 })
 
 // ---- Ratio mode ----
@@ -92,7 +96,7 @@ const autoRatioEnabled = computed((): boolean => ratioMode.value === 'auto')
 // Base du surplus : par véhicule, ou par personne à bord
 type SurplusBasis = 'vehicle' | 'person'
 const surplusBasis = ref<SurplusBasis>('vehicle')
-const surplusMaxPer1000km = ref(10)
+const surplusMaxPer1000km = ref<number | null>(10)
 const nbPersons = ref(1)
 
 const nbVehicles = computed((): number =>
@@ -110,7 +114,7 @@ const surplusUnitLabel = computed((): string =>
 )
 // Surplus maximal autorisé pour ce trajet (€)
 const surplusAllowed = computed((): number =>
-  surplusMaxPer1000km.value * (totalDistance.value / 1000) * surplusUnits.value
+  num(surplusMaxPer1000km.value) * (totalDistance.value / 1000) * surplusUnits.value
 )
 // Plafond d'indemnité visé : frais réels + surplus
 const autoCap = computed((): number =>
@@ -144,9 +148,9 @@ interface ConvoyEntry {
   id: string
   label: string
   vehicleId: number | null
-  consumption: number
-  fuelPrice: number
-  fiscalPower: number
+  consumption: number | null
+  fuelPrice: number | null
+  fiscalPower: number | null
 }
 interface ConvoyResult {
   label: string
@@ -311,16 +315,16 @@ function calculate() {
 
   const base = {
     distanceKm: effectiveDistance.value,
-    tollAmount: avoidTolls.value ? 0 : tollAmount.value,
-    annualKmAlready: annualKmAlready.value,
+    tollAmount: avoidTolls.value ? 0 : num(tollAmount.value),
+    annualKmAlready: num(annualKmAlready.value),
     roundTrip: roundTrip.value,
   }
 
   try {
     if (convoyEnabled.value) {
       const entries = [
-        { label: selectedVehicle.value?.name ?? 'Véhicule 1', consumption: consumption.value, fuelPrice: fuelPrice.value, fiscalPower: fiscalPower.value },
-        ...convoyExtras.value.map(e => ({ label: e.label, consumption: e.consumption, fuelPrice: e.fuelPrice, fiscalPower: e.fiscalPower })),
+        { label: selectedVehicle.value?.name ?? 'Véhicule 1', consumption: num(consumption.value), fuelPrice: num(fuelPrice.value), fiscalPower: num(fiscalPower.value) },
+        ...convoyExtras.value.map(e => ({ label: e.label, consumption: num(e.consumption), fuelPrice: num(e.fuelPrice), fiscalPower: num(e.fiscalPower) })),
       ]
       const responses = entries.map(e => computeCalc({ ...base, consumption: e.consumption, fuelPrice: e.fuelPrice, fiscalPower: e.fiscalPower }))
       convoyResults.value = responses.map((r, i) => ({
@@ -340,7 +344,7 @@ function calculate() {
         baremeResult.value = { rate: responses[0].baremeTaux, bracket: responses[0].baremeBracket, allowance: totalAllowance, perKm: totalAllowance / dist }
       }
     } else {
-      const data = computeCalc({ ...base, consumption: consumption.value, fiscalPower: fiscalPower.value, fuelPrice: fuelPrice.value })
+      const data = computeCalc({ ...base, consumption: num(consumption.value), fiscalPower: num(fiscalPower.value), fuelPrice: num(fuelPrice.value) })
       if (useEssence.value) {
         essenceResult.value = { fuelCost: data.fuelCost, tollCost: data.tollCost, total: data.totalRealCost, perKm: data.totalRealCost / data.distanceUsed }
       }
@@ -367,6 +371,13 @@ function reset() {
 // ---- Formatting ----
 function fmtEur(n: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 }).format(n)
+}
+// Affichage d'un nombre nu à la française (virgule décimale)
+function fmtNum(n: number, decimals?: number) {
+  return new Intl.NumberFormat('fr-FR', decimals === undefined
+    ? { maximumFractionDigits: 3 }
+    : { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
+  ).format(n)
 }
 function fmtKm(n: number) {
   return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(n) + ' km'
@@ -398,7 +409,7 @@ const ratioModeHint = computed((): string =>
 )
 // Libellé court du ratio appliqué, réutilisé partout (écran + PDF)
 const appliedRatioLabel = computed((): string =>
-  ratioMode.value === 'auto' ? `auto ${(autoRatio.value * 100).toFixed(1)}%` : ratioLabel.value
+  ratioMode.value === 'auto' ? `auto ${fmtNum(autoRatio.value * 100, 1)} %` : ratioLabel.value
 )
 </script>
 
@@ -443,7 +454,7 @@ const appliedRatioLabel = computed((): string =>
           </div>
           <div v-if="ratioMode === 'auto'" class="rc-trip-item">
             <span class="rc-label">Règle</span>
-            <span class="rc-value">Frais réels + {{ surplusMaxPer1000km }} €/1000 km/{{ surplusBasis === 'person' ? 'personne' : 'véhicule' }}</span>
+            <span class="rc-value">Frais réels + {{ fmtNum(num(surplusMaxPer1000km)) }} €/1000 km/{{ surplusBasis === 'person' ? 'personne' : 'véhicule' }}</span>
           </div>
         </div>
       </div>
@@ -455,8 +466,8 @@ const appliedRatioLabel = computed((): string =>
         <div v-if="essenceResult" class="rc-card rc-blue">
           <div class="rc-card-header">⛽ Coût {{ isElectric ? 'énergie' : 'carburant' }}</div>
           <table class="rc-table">
-            <tr><td>Consommation</td><td>{{ consumption }} {{ isElectric ? 'kWh' : 'L' }}/100km</td></tr>
-            <tr><td>Prix {{ isElectric ? 'énergie' : 'carburant' }}</td><td>{{ fuelPrice }} €/{{ isElectric ? 'kWh' : 'L' }}</td></tr>
+            <tr><td>Consommation</td><td>{{ fmtNum(num(consumption)) }} {{ isElectric ? 'kWh' : 'L' }}/100km</td></tr>
+            <tr><td>Prix {{ isElectric ? 'énergie' : 'carburant' }}</td><td>{{ fmtNum(num(fuelPrice)) }} €/{{ isElectric ? 'kWh' : 'L' }}</td></tr>
             <tr><td>{{ isElectric ? 'Énergie' : 'Carburant' }}</td><td>{{ fmtEur(essenceResult.fuelCost) }}</td></tr>
             <tr v-if="essenceResult.tollCost > 0"><td>Péages</td><td>{{ fmtEur(essenceResult.tollCost) }}</td></tr>
             <tr class="rc-row-total"><td>TOTAL</td><td>{{ fmtEur(essenceResult.total) }}</td></tr>
@@ -471,7 +482,7 @@ const appliedRatioLabel = computed((): string =>
           <table class="rc-table">
             <tr><td>Puissance fiscale</td><td>{{ fiscalPower }} CV</td></tr>
             <tr><td>Tranche annuelle</td><td>{{ baremeResult.bracket }}</td></tr>
-            <tr><td>Taux appliqué</td><td>{{ baremeResult.rate.toFixed(3) }} €/km</td></tr>
+            <tr><td>Taux appliqué</td><td>{{ fmtNum(baremeResult.rate, 3) }} €/km</td></tr>
             <tr v-if="effectiveRatio !== 1"><td>Indemnité brute</td><td>{{ fmtEur(baremeResult.allowance) }}</td></tr>
             <tr class="rc-row-total">
               <td>INDEMNITÉ<span v-if="effectiveRatio !== 1"> ({{ appliedRatioLabel }})</span></td>
@@ -647,7 +658,7 @@ const appliedRatioLabel = computed((): string =>
 
         <!-- Manual distance (always shown) -->
         <div class="flex items-center gap-2">
-          <input v-model.number="manualDistance" type="text" inputmode="numeric" placeholder="Distance en km"
+          <NumberField v-model="manualDistance" placeholder="Distance en km"
             class="input text-sm flex-1" />
           <span v-if="totalDistance > 0" class="text-sm font-semibold text-ink-500 flex-shrink-0 whitespace-nowrap">
             = {{ fmtKm(totalDistance) }}<span v-if="roundTrip" class="text-xs font-normal text-ink-300"> A/R</span>
@@ -676,16 +687,14 @@ const appliedRatioLabel = computed((): string =>
               <div>
                 <label class="label text-xs">Consommation</label>
                 <div class="relative">
-                  <input v-model.number="consumption" type="text" inputmode="decimal"
-                    class="input pr-14 text-sm" />
+                  <NumberField v-model="consumption" class="input pr-14 text-sm" />
                   <span class="absolute right-2.5 top-2 text-xs text-ink-300">{{ isElectric ? 'kWh' : 'L' }}/100</span>
                 </div>
               </div>
               <div>
                 <label class="label text-xs">Prix {{ isElectric ? 'énergie' : 'carburant' }}</label>
                 <div class="relative">
-                  <input v-model.number="fuelPrice" type="text" inputmode="decimal"
-                    class="input pr-12 text-sm" />
+                  <NumberField v-model="fuelPrice" class="input pr-12 text-sm" />
                   <span class="absolute right-2.5 top-2 text-xs text-ink-300">€/{{ isElectric ? 'kWh' : 'L' }}</span>
                 </div>
               </div>
@@ -700,7 +709,7 @@ const appliedRatioLabel = computed((): string =>
                   <span :class="avoidTolls ? 'translate-x-4' : 'translate-x-0.5'" class="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform block" />
                 </button>
               </label>
-              <input v-if="!avoidTolls" v-model.number="tollAmount" type="text" inputmode="decimal"
+              <NumberField v-if="!avoidTolls" v-model="tollAmount" :empty-value="0"
                 placeholder="Montant des péages (€)" class="input text-sm" />
             </div>
 
@@ -744,8 +753,7 @@ const appliedRatioLabel = computed((): string =>
             <div>
               <label class="label text-xs">Puissance fiscale</label>
               <div class="relative">
-                <input v-model.number="fiscalPower" type="text" inputmode="numeric"
-                  class="input pr-8 text-sm" />
+                <NumberField v-model="fiscalPower" integer class="input pr-8 text-sm" />
                 <span class="absolute right-2.5 top-2 text-xs text-ink-300">CV</span>
               </div>
             </div>
@@ -761,7 +769,7 @@ const appliedRatioLabel = computed((): string =>
               </div>
               <div class="flex justify-between text-sm text-ink-500">
                 <span>Taux</span>
-                <span class="font-medium">{{ baremeResult.rate.toFixed(3) }} €/km</span>
+                <span class="font-medium">{{ fmtNum(baremeResult.rate, 3) }} €/km</span>
               </div>
               <div class="flex justify-between font-bold text-orange-600 text-base pt-1 border-t border-orange-100">
                 <span>Indemnité<span v-if="effectiveRatio !== 1" class="font-normal text-xs text-orange-400 ml-1">{{ appliedRatioLabel }}</span><span v-if="convoyEnabled && convoyResults.length > 1" class="font-normal text-xs text-orange-400 ml-1">({{ convoyResults.length }} véh.)</span></span>
@@ -872,7 +880,7 @@ const appliedRatioLabel = computed((): string =>
                 Le conducteur récupère <strong>ses frais réels</strong>, plus un surplus de&nbsp;:
               </p>
               <div class="flex items-center gap-1.5 flex-wrap text-xs">
-                <input v-model.number="surplusMaxPer1000km" type="number" min="0" step="1"
+                <NumberField v-model="surplusMaxPer1000km" :empty-value="0"
                   class="w-16 px-2 py-1 border border-green-400 bg-white rounded-lg outline-none text-center font-semibold" />
                 <span class="text-green-800">€ par 1 000 km et par</span>
               </div>
@@ -894,7 +902,7 @@ const appliedRatioLabel = computed((): string =>
                   Le surplus est le même quel que soit le nombre de passagers, et se partage entre eux.
                 </template>
                 <template v-else>
-                  Chaque passager rapporte {{ surplusMaxPer1000km }} € par 1 000 km au conducteur.
+                  Chaque passager rapporte {{ fmtNum(num(surplusMaxPer1000km)) }} € par 1 000 km au conducteur.
                 </template>
               </p>
             </div>
@@ -906,7 +914,7 @@ const appliedRatioLabel = computed((): string =>
                 <span class="font-medium tabular-nums">{{ fmtEur(essenceResult.total) }}</span>
               </div>
               <div class="flex justify-between text-ink-500">
-                <span>+ surplus ({{ surplusMaxPer1000km }} € × {{ surplusUnitLabel }} × {{ (totalDistance / 1000).toFixed(3) }})</span>
+                <span>+ surplus ({{ fmtNum(num(surplusMaxPer1000km)) }} € × {{ surplusUnitLabel }} × {{ fmtNum(totalDistance / 1000, 3) }})</span>
                 <span class="font-medium tabular-nums">{{ fmtEur(surplusAllowed) }}</span>
               </div>
               <div class="flex justify-between font-semibold text-ink-700 pt-1 border-t border-ink-50">
@@ -919,7 +927,7 @@ const appliedRatioLabel = computed((): string =>
               </div>
               <div class="flex justify-between font-bold text-green-700 pt-1 border-t border-ink-50">
                 <span>→ ratio appliqué</span>
-                <span class="tabular-nums">{{ (autoRatio * 100).toFixed(1) }} %</span>
+                <span class="tabular-nums">{{ fmtNum(autoRatio * 100, 1) }} %</span>
               </div>
               <p v-if="autoRatio >= 1" class="text-ink-300 pt-1">
                 Le barème est déjà sous le plafond : aucune réduction n'est nécessaire.
@@ -976,9 +984,9 @@ const appliedRatioLabel = computed((): string =>
           <div class="flex items-center gap-2 px-3 py-2 bg-ink-50 rounded-lg text-xs text-ink-500 flex-wrap">
             <span class="font-medium text-ink-700">{{ selectedVehicle?.name ?? 'Véhicule 1' }}</span>
             <span class="text-ink-100">·</span>
-            <span>{{ consumption }} {{ isElectric ? 'kWh' : 'L' }}/100</span>
+            <span>{{ fmtNum(num(consumption)) }} {{ isElectric ? 'kWh' : 'L' }}/100</span>
             <span class="text-ink-100">·</span>
-            <span>{{ fuelPrice }} €/{{ isElectric ? 'kWh' : 'L' }}</span>
+            <span>{{ fmtNum(num(fuelPrice)) }} €/{{ isElectric ? 'kWh' : 'L' }}</span>
             <span class="text-ink-100">·</span>
             <span>{{ fiscalPower }} CV</span>
             <span class="ml-auto text-ink-300 italic">(principal)</span>
@@ -998,17 +1006,17 @@ const appliedRatioLabel = computed((): string =>
             </div>
             <div class="grid grid-cols-3 gap-2">
               <div class="relative">
-                <input v-model.number="entry.consumption" type="text" inputmode="decimal"
+                <NumberField v-model="entry.consumption"
                   class="w-full px-2 py-1.5 text-xs border border-ink-100 rounded-lg focus:border-purple-400 outline-none pr-10" />
                 <span class="absolute right-2 top-1.5 text-xs text-ink-300">L/100</span>
               </div>
               <div class="relative">
-                <input v-model.number="entry.fuelPrice" type="text" inputmode="decimal"
+                <NumberField v-model="entry.fuelPrice"
                   class="w-full px-2 py-1.5 text-xs border border-ink-100 rounded-lg focus:border-purple-400 outline-none pr-8" />
                 <span class="absolute right-2 top-1.5 text-xs text-ink-300">€/L</span>
               </div>
               <div class="relative">
-                <input v-model.number="entry.fiscalPower" type="text" inputmode="numeric"
+                <NumberField v-model="entry.fiscalPower" integer
                   class="w-full px-2 py-1.5 text-xs border border-ink-100 rounded-lg focus:border-purple-400 outline-none pr-6" />
                 <span class="absolute right-2 top-1.5 text-xs text-ink-300">CV</span>
               </div>
